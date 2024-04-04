@@ -53,6 +53,7 @@ def write_character(path, data):
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QLabel, QListWidgetItem, QStackedWidget, QSplitter
 from PyQt5.QtWidgets import QLineEdit, QPlainTextEdit, QListWidget, QPushButton, QFormLayout, QTabWidget, QHBoxLayout, QFileDialog
+from PyQt5.QtWidgets import QCheckBox, QSizePolicy
 import os
 import traceback
 
@@ -72,6 +73,158 @@ class AlternateGreetingWidget(QWidget):
         self.delete_button = QPushButton("Delete", self)
         self.layout.addWidget(self.editor)
         self.layout.addWidget(self.delete_button)
+
+class EntryWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QHBoxLayout(self)
+        self.setLayout(self.layout)
+
+        # Add fields for each entry attribute
+
+        self.simple_attributes = QWidget(self)
+        self.simple_attributes_layout = QFormLayout(self.simple_attributes)
+        self.layout.addWidget(self.simple_attributes)
+
+        self.keys_field = QLineEdit(self)
+        self.simple_attributes_layout.addRow("Keys", self.keys_field)
+        self.content_field = QPlainTextEdit(self)
+        self.simple_attributes_layout.addRow("Content", self.content_field)
+        #enabled: boolean
+        #case_sensitive?: boolean
+        #insertion_order: number // if two entries inserted, lower "insertion order" = inserted higher
+        #name?: string // not used in prompt engineering
+        #priority?: number // if token budget reached, lower priority value = discarded first
+        #id?: number // not used in prompt engineering
+        #comment?: string // not used in prompt engineering
+        #selective?: boolean // if `true`, require a key from both `keys` and `secondary_keys` to trigger the entry
+        #secondary_keys?: Array<string> // see field `selective`. ignored if selective == false
+        #constant?: boolean // if true, always inserted in the prompt (within budget limit)
+        #position?: 'before_char' | 'after_char' // whether the entry is placed before or after the character defs
+        #extensions: Record<string, any>
+
+        self.delete_button = QPushButton("Delete", self)
+        self.layout.addWidget(self.delete_button)
+
+    def setData(self, entry):
+        if not entry:
+            return
+        self.content_field.setPlainText(entry.get("content"))
+        self.keys_field.setText(", ".join(entry.get("keys", [])))
+
+
+class CharacterBookWidget(QWidget):
+    def __init__(self, fullData, parent=None):
+        super().__init__(parent)
+
+        self.fullData = fullData
+        self.layout = QVBoxLayout(self)
+
+        # Add a checkbox for toggling view mode
+        self.view_checkbox = QCheckBox("Simple View", self)
+        self.view_checkbox.stateChanged.connect(self.toggle_view)
+        self.layout.addWidget(self.view_checkbox)
+
+        self.simple_attributes = QWidget(self)
+        self.simple_attributes_layout = QFormLayout(self.simple_attributes)
+        self.layout.addWidget(self.simple_attributes)
+        
+        # Add fields for top-level attributes
+        self.name_field = QLineEdit(self)
+        self.simple_attributes_layout.addRow("Name", self.name_field)
+        self.description_field = QPlainTextEdit(self)
+        self.description_field.setMaximumHeight(200)
+        self.description_field.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.simple_attributes_layout.addRow("Description", self.description_field)
+
+        self.complex_attributes = QWidget(self)
+        self.complex_attributes_layout = QHBoxLayout(self.complex_attributes)
+        self.layout.addWidget(self.complex_attributes)
+
+        self.scan_depth_label = QLabel("Scan Depth", self)
+        self.complex_attributes_layout.addWidget(self.scan_depth_label)
+        self.scan_depth_editor = QLineEdit("", self)##TODO validate number
+        self.complex_attributes_layout.addWidget(self.scan_depth_editor)
+        self.token_budget_label = QLabel("Token Budget", self)
+        self.complex_attributes_layout.addWidget(self.token_budget_label)
+        self.token_budget_editor = QLineEdit("", self)##TODO validate number
+        self.complex_attributes_layout.addWidget(self.token_budget_editor)
+        self.recursive_scanning = QCheckBox("Recursive Scanning", self)
+        self.complex_attributes_layout.addWidget(self.recursive_scanning)
+
+        self.extensions_form = QWidget(self)
+        self.extensions_form_layout = QFormLayout(self.extensions_form)
+        self.extensions_edit = QPlainTextEdit(self)
+        self.extensions_edit.setMaximumHeight(200)
+        self.extensions_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.extensions_form_layout.addRow("Extensions", self.extensions_edit)
+        self.layout.addWidget(self.extensions_form)
+        
+        # Add a scroll area for the entries
+        self.entries_list = QListWidget(self)
+        self.layout.addWidget(self.entries_list)
+
+        # Add a button for adding new entries
+        self.add_button = QPushButton("Add Entry", self)
+        self.add_button.clicked.connect(self.add_entry)
+        self.layout.addWidget(self.add_button)
+
+        self.view_checkbox.setChecked(True)
+
+    def add_entry(self, entry=None):
+        widget_item = QListWidgetItem(self.entries_list)
+        custom_widget = EntryWidget(self.entries_list)
+        custom_widget.setData(entry)
+        widget_item.setSizeHint(custom_widget.sizeHint())
+        self.entries_list.addItem(widget_item)
+        self.entries_list.setItemWidget(widget_item, custom_widget)
+        custom_widget.delete_button.clicked.connect(lambda: self.delete_entry(widget_item))
+    
+    def delete_entry(self, item):
+        row = self.entries_list.row(item)
+        self.entries_list.takeItem(row)
+
+    def toggle_view(self, state):
+        # Toggle the visibility of certain fields based on the checkbox state
+        self.complex_attributes.setVisible(state == Qt.Unchecked)
+        self.extensions_form.setVisible(state == Qt.Unchecked)
+        #for i in range(self.entries_list.count()):
+        #    item = self.entries_list.item(i)
+        #    widget = self.entries_list.itemWidget(item)
+        #    widget.complex_field.setVisible(state == Qt.Unchecked)
+
+    def updateUIFromData(self):
+        characterBook = self.fullData["data"].get("character_book", {})
+        self.name_field.setText(characterBook.get("name"))
+        self.description_field.setPlainText(characterBook.get("description"))
+        self.scan_depth_editor.setText(str(characterBook.get("scan_depth"))) ##TODO int
+        self.token_budget_editor.setText(str(characterBook.get("token_budget"))) ##TODO int
+        self.recursive_scanning.setChecked(characterBook.get("recursive_scanning", False))
+
+        #initialize entries
+        self.entries_list.clear()
+        for entry in characterBook.get("entries", []):
+            self.add_entry(entry)
+
+    def updateDataFromUI(self):
+        characterBook = self.fullData["data"].get("character_book", {})
+        self.fullData["data"]["character_book"] = characterBook
+
+        characterBook["name"] = self.name_field.text()
+        characterBook["description"] = self.description_field.toPlainText()
+        characterBook["scan_depth"] = self.scan_depth_editor.text()
+        characterBook["token_budget"] = self.token_budget_editor.text()
+        characterBook["recursive_scanning"] = self.recursive_scanning.isChecked()
+        
+        entries = []
+        for i in range(self.entries_list.count()):
+            item = self.entries_list.item(i)
+            entry = self.entries_list.itemWidget(item)
+            entry_dict = {}
+            entry_dict["keys"] = [x.strip() for x in str(entry.keys_field.text()).split(',')]
+            entry_dict["content"] = entry.content_field.toPlainText()
+            entries.append(entry_dict)
+        characterBook["entries"] = entries
 
 
 class EditorWidget(QWidget):
@@ -174,10 +327,10 @@ to get the best experience from the bot.""")
         self.tabUncommon_layout.addRow("Creator Notes:", self.creatorNotesEdit)
 
         # Create third tab layout
-        self.tabCharacterBook_layout = QFormLayout(self.tabCharacterBook)
+        self.tabCharacterBook_layout = QVBoxLayout(self.tabCharacterBook)
+        self.characterBookEdit = CharacterBookWidget(self.fullData)
+        self.tabCharacterBook_layout.addWidget(self.characterBookEdit)
 
-        #TODO
-        
         self.updateUIFromData()
 
         # Create the buttons
@@ -230,6 +383,8 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
         self.creatorEdit.setText(data.get("creator"))
         self.creatorNotesEdit.setPlainText(data.get("creator_notes"))
 
+        self.characterBookEdit.updateUIFromData()
+
     def updateDataFromUI(self):
         fullData = self.fullData
         data = fullData["data"]
@@ -253,6 +408,8 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
         data["post_history_instructions"] = str(self.postHistoryInstructionsEdit.toPlainText())
         data["creator"] = str(self.creatorEdit.text())
         data["creator_notes"] = str(self.creatorNotesEdit.toPlainText())
+        
+        self.characterBookEdit.updateDataFromUI()
 
     def saveClicked(self):
         self.updateDataFromUI()
@@ -260,6 +417,7 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
 
     def exportClicked(self):
         self.updateDataFromUI()
+        #TODO file picker, this will be the default
         jsonFilepath = self.filePath[:-3]+"json"
         with open(jsonFilepath, "w", encoding="utf-8") as f:
             json.dump(self.fullData, f)
