@@ -24,7 +24,7 @@ base = {
     }
 }
 
-TEMP_ROOT = "."
+PLAINTEXT_EDITOR_MAX_HEIGHT = 50
 
 def read_character(path):
     image = PngImageFile(path)
@@ -53,7 +53,9 @@ def write_character(path, data):
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QLabel, QListWidgetItem, QStackedWidget, QSplitter
 from PyQt5.QtWidgets import QLineEdit, QPlainTextEdit, QListWidget, QPushButton, QFormLayout, QTabWidget, QHBoxLayout, QFileDialog
-from PyQt5.QtWidgets import QCheckBox, QSizePolicy
+from PyQt5.QtWidgets import QCheckBox, QSizePolicy, QComboBox, QGridLayout, QAbstractItemView
+from PyQt5.QtGui import QIntValidator, QDoubleValidator
+from PyQt5.QtCore import Qt
 import os
 import traceback
 
@@ -63,6 +65,25 @@ def excepthook(exc_type, exc_value, exc_tb):
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 sys.excepthook = excepthook
+
+def convertBoolToTristate(data):
+    if data == True:
+        return Qt.Checked
+    elif data == False:
+        return Qt.Unchecked
+    return Qt.PartiallyChecked
+def convertTristateToBool(data):
+    if data == Qt.Checked:
+        return True
+    elif data == Qt.Unchecked:
+        return False
+    return None
+
+def safeJSONLoads(jsonstring):
+    try:
+        return json.loads(jsonstring)
+    except:
+        return jsonstring
 
 class AlternateGreetingWidget(QWidget):
     def __init__(self, parent=None):
@@ -77,41 +98,156 @@ class AlternateGreetingWidget(QWidget):
 class EntryWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.layout = QHBoxLayout(self)
+        self.layout = QVBoxLayout(self)
         self.setLayout(self.layout)
 
-        # Add fields for each entry attribute
-
         self.simple_attributes = QWidget(self)
-        self.simple_attributes_layout = QFormLayout(self.simple_attributes)
+        self.simple_attributes_layout = QGridLayout(self.simple_attributes)
         self.layout.addWidget(self.simple_attributes)
 
-        self.keys_field = QLineEdit(self)
-        self.simple_attributes_layout.addRow("Keys", self.keys_field)
-        self.content_field = QPlainTextEdit(self)
-        self.simple_attributes_layout.addRow("Content", self.content_field)
-        #enabled: boolean
-        #case_sensitive?: boolean
-        #insertion_order: number // if two entries inserted, lower "insertion order" = inserted higher
-        #name?: string // not used in prompt engineering
-        #priority?: number // if token budget reached, lower priority value = discarded first
-        #id?: number // not used in prompt engineering
-        #comment?: string // not used in prompt engineering
-        #selective?: boolean // if `true`, require a key from both `keys` and `secondary_keys` to trigger the entry
-        #secondary_keys?: Array<string> // see field `selective`. ignored if selective == false
-        #constant?: boolean // if true, always inserted in the prompt (within budget limit)
-        #position?: 'before_char' | 'after_char' // whether the entry is placed before or after the character defs
-        #extensions: Record<string, any>
-
+        self.simple_attributes_layout.addWidget(QLabel("Keys", self.simple_attributes), 0, 0)
+        self.keys_field = QLineEdit(self.simple_attributes)
+        self.simple_attributes_layout.addWidget(self.keys_field, 0, 1)
         self.delete_button = QPushButton("Delete", self)
-        self.layout.addWidget(self.delete_button)
+        self.simple_attributes_layout.addWidget(self.delete_button, 0, 2)
+        self.simple_attributes_layout.addWidget(QLabel("Content", self.simple_attributes), 1, 0)
+        self.content_field = QPlainTextEdit(self.simple_attributes)
+        self.content_field.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
+        self.content_field.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.simple_attributes_layout.addWidget(self.content_field, 1, 1, 1, 2)
+
+        self.complex_attributes = QWidget(self)
+        self.complex_attributes_layout = QGridLayout(self.complex_attributes)
+        self.layout.addWidget(self.complex_attributes)
+
+        grid = self.complex_attributes_layout
+
+        grid.addWidget(QLabel("Name", self), 0, 0)
+        self.name_edit = QLineEdit(self)
+        self.name_edit.setToolTip("not used in prompt engineering")
+        grid.addWidget(self.name_edit, 0, 1)
+
+        self.booleans = QWidget(self)
+        self.booleans_layout = QHBoxLayout(self.booleans)
+        self.booleans.setLayout(self.booleans_layout)
+        grid.addWidget(self.booleans, 1, 0, 1, 2)
+        bools = self.booleans_layout
+        self.enabled_checkbox = QCheckBox("Enabled", self) #not tristate, enabled is required by the spec
+        self.enabled_checkbox.setToolTip("Whether this entry is to be actually used by the character.")
+        bools.addWidget(self.enabled_checkbox)
+        self.case_sensitive_checkbox = QCheckBox("Case Sensitive", self)
+        self.case_sensitive_checkbox.setTristate(True)
+        self.case_sensitive_checkbox.setToolTip("""Whether the keyword search should pay attention to upper/lower case.
+This tristate checkbox allows you to set a value that may be true, false, or undefined. The specifications for character cards
+indicate that this particular data parameter is optional and may be absent entirely, which is represented by the "undefined" state.""")
+        bools.addWidget(self.case_sensitive_checkbox)
+        self.constant_checkbox = QCheckBox("Constant", self)
+        self.constant_checkbox.setTristate(True)
+        self.constant_checkbox.setToolTip("""if true, always inserted in the prompt (within budget limit)
+This tristate checkbox allows you to set a value that may be true, false, or undefined. The specifications for character cards
+indicate that this particular data parameter is optional and may be absent entirely, which is represented by the "undefined" state.""")
+        bools.addWidget(self.constant_checkbox)
+        positionLabel = QLabel("Position")
+        positionLabel.setAlignment(Qt.AlignRight)
+        bools.addWidget(positionLabel)
+        self.positionBox = QComboBox(self)
+        self.positionBox.addItem("")  # Add an empty "unset" value
+        self.positionBox.addItem("Before character") #before_char
+        self.positionBox.addItem("After character") #after_char
+        self.positionBox.setToolTip("whether the entry is placed before or after the character defs")
+        bools.addWidget(self.positionBox)
+
+        doubleValidator = QDoubleValidator()
+        self.numbers = QWidget(self)
+        self.numbers_layout = QHBoxLayout(self.numbers)
+        self.numbers.setLayout(self.numbers_layout)
+        grid.addWidget(self.numbers, 2, 0, 1, 2)
+        nums = self.numbers_layout
+        nums.addWidget(QLabel("Insertion Order", self))
+        self.insertion_order_edit = QLineEdit(self)
+        self.insertion_order_edit.setToolTip("if two entries inserted, a lower insertion order causes it to be inserted higher")
+        self.insertion_order_edit.setValidator(doubleValidator)
+        nums.addWidget(self.insertion_order_edit)
+        nums.addWidget(QLabel("Priority", self))
+        self.priority_edit = QLineEdit(self)
+        self.priority_edit.setToolTip("if token budget reached, lower priority value entries are discarded first")
+        self.priority_edit.setValidator(doubleValidator)
+        nums.addWidget(self.priority_edit)
+        nums.addWidget(QLabel("ID", self))
+        self.id_edit = QLineEdit(self) 
+        self.id_edit.setToolTip("not used in prompt engineering")
+        self.id_edit.setValidator(doubleValidator)
+        nums.addWidget(self.id_edit)
+        
+        grid.addWidget(QLabel("Comment", self), 3, 0)
+        self.comment_edit = QPlainTextEdit(self)
+        self.comment_edit.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
+        self.comment_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.comment_edit.setToolTip("not used in prompt engineering")
+        grid.addWidget(self.comment_edit, 3, 1)
+        self.selective_checkbox = QCheckBox("Selective", self)
+        self.selective_checkbox.setTristate(True)
+        self.selective_checkbox.stateChanged.connect(self.setSelective)
+        self.selective_checkbox.setToolTip("""if `true`, require a key from both `keys` and `secondary_keys` to trigger the entry.
+This tristate checkbox allows you to set a value that may be true, false, or undefined. The specifications for character cards
+indicate that this particular data parameter is optional and may be absent entirely, which is represented by the "undefined" state.""")
+        grid.addWidget(self.selective_checkbox, 4, 0)
+        #self.secondary_keys_label = QLabel("Secondary Keys", self) #don't need this label, using the selective checkbox as one
+        self.secondary_keys_edit = QLineEdit(self)
+        self.secondary_keys_edit.setToolTip("comma-separated secondary keys, only used if \"selective\" is set to true.")
+        grid.addWidget(self.secondary_keys_edit, 4, 1)
+        grid.addWidget(QLabel("Extensions", self), 5, 0)
+        self.extensions_edit = QPlainTextEdit(self)
+        self.extensions_edit.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
+        self.extensions_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.extensions_edit.setToolTip("A block of JSON values used by non-standard chatbot extensions.")
+        grid.addWidget(self.extensions_edit, 5, 1)
+
+    def setSelective(self, state):
+        self.secondary_keys_edit.setEnabled(state == Qt.Checked)
 
     def setData(self, entry):
         if not entry:
             return
         self.content_field.setPlainText(entry.get("content"))
         self.keys_field.setText(", ".join(entry.get("keys", [])))
-
+        self.name_edit.setText(entry.get("name"))
+        self.enabled_checkbox.setChecked(entry.get("enabled", True)) #defaulting to true because that just seems like the most likely intent when this is absent entirely
+        self.case_sensitive_checkbox.setCheckState(convertBoolToTristate(entry.get("case_sensitive", None)))
+        self.constant_checkbox.setCheckState(convertBoolToTristate(entry.get("constant", None)))
+        position = entry.get("position", "")
+        if position == "before_char":
+            position = "Before character"
+        elif position == "after_char":
+            position = "After character"
+        self.positionBox.setCurrentText(position)
+        self.insertion_order_edit.setText(str(entry.get("insertion_order", "0")))
+        self.priority_edit.setText(str(entry.get("priority", "")))
+        self.id_edit.setText(str(entry.get("id", "")))
+        self.comment_edit.setPlainText(entry.get("comment"))
+        self.selective_checkbox.setCheckState(convertBoolToTristate(entry.get("selective", None)))
+        self.secondary_keys_edit.setText(", ".join(entry.get("secondary_keys", [])))
+        self.secondary_keys_edit.setEnabled(entry.get("selective", False))
+        self.extensions_edit.setPlainText(json.dumps(entry.get("extensions", {})))
+        
+    def getData(self):
+        entry_dict = {}
+        entry_dict["keys"] = [x.strip() for x in str(self.keys_field.text()).split(',')]
+        entry_dict["content"] = self.content_field.toPlainText()
+        entry_dict["extensions"] = safeJSONLoads(self.extensions_edit.toPlainText())
+        entry_dict["enabled"] = self.enabled_checkbox.isChecked()
+        entry_dict["insertion_order"] = int(self.insertion_order_edit.text())
+        entry_dict["case_sensitive"] = convertTristateToBool(self.case_sensitive_checkbox.checkState())
+        #entry_dict["name"] =
+        #entry_dict["priority"] =
+        #entry_dict["id"] =
+        #entry_dict["comment"] =
+        #entry_dict["selective"] =
+        #entry_dict["secondary_keys"] =
+        #entry_dict["constant"] =
+        #entry_dict["position"] =
+        
+        return entry_dict
 
 class CharacterBookWidget(QWidget):
     def __init__(self, fullData, parent=None):
@@ -131,37 +267,52 @@ class CharacterBookWidget(QWidget):
         
         # Add fields for top-level attributes
         self.name_field = QLineEdit(self)
+        #self.name_field.setToolTip("")
         self.simple_attributes_layout.addRow("Name", self.name_field)
         self.description_field = QPlainTextEdit(self)
-        self.description_field.setMaximumHeight(200)
+        self.description_field.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
         self.description_field.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        #self.description_field.setToolTip("")
         self.simple_attributes_layout.addRow("Description", self.description_field)
 
         self.complex_attributes = QWidget(self)
         self.complex_attributes_layout = QHBoxLayout(self.complex_attributes)
         self.layout.addWidget(self.complex_attributes)
 
+        intValidator = QIntValidator()
+
         self.scan_depth_label = QLabel("Scan Depth", self)
         self.complex_attributes_layout.addWidget(self.scan_depth_label)
-        self.scan_depth_editor = QLineEdit("", self)##TODO validate number
+        self.scan_depth_editor = QLineEdit("", self)
+        self.scan_depth_editor.setToolTip("Chat history depth scanned for keywords.")
+        self.scan_depth_editor.setValidator(intValidator)
         self.complex_attributes_layout.addWidget(self.scan_depth_editor)
         self.token_budget_label = QLabel("Token Budget", self)
         self.complex_attributes_layout.addWidget(self.token_budget_label)
-        self.token_budget_editor = QLineEdit("", self)##TODO validate number
+        self.token_budget_editor = QLineEdit("", self)
+        self.token_budget_editor.setToolTip("Sets how much of the context can be taken up by entries.")
+        self.token_budget_editor.setValidator(intValidator)
         self.complex_attributes_layout.addWidget(self.token_budget_editor)
         self.recursive_scanning = QCheckBox("Recursive Scanning", self)
+        self.recursive_scanning.setToolTip("""whether entry content can trigger other entries.
+This tristate checkbox allows you to set a value that may be true, false, or undefined. The specifications for character cards
+indicate that this particular data parameter is optional and may be absent entirely, which is represented by the "undefined" state.""")
+        self.recursive_scanning.setTristate(True) #can be None
         self.complex_attributes_layout.addWidget(self.recursive_scanning)
 
         self.extensions_form = QWidget(self)
         self.extensions_form_layout = QFormLayout(self.extensions_form)
         self.extensions_edit = QPlainTextEdit(self)
-        self.extensions_edit.setMaximumHeight(200)
+        self.extensions_edit.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
         self.extensions_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.extensions_edit.setToolTip("A block of JSON values used by non-standard chatbot extensions.")
         self.extensions_form_layout.addRow("Extensions", self.extensions_edit)
         self.layout.addWidget(self.extensions_form)
         
-        # Add a scroll area for the entries
+        # Add a list widget for the entries
         self.entries_list = QListWidget(self)
+        self.entries_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.entries_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid black; }")
         self.layout.addWidget(self.entries_list)
 
         # Add a button for adding new entries
@@ -175,6 +326,7 @@ class CharacterBookWidget(QWidget):
         widget_item = QListWidgetItem(self.entries_list)
         custom_widget = EntryWidget(self.entries_list)
         custom_widget.setData(entry)
+        custom_widget.complex_attributes.setVisible(not self.view_checkbox.isChecked())
         widget_item.setSizeHint(custom_widget.sizeHint())
         self.entries_list.addItem(widget_item)
         self.entries_list.setItemWidget(widget_item, custom_widget)
@@ -188,18 +340,21 @@ class CharacterBookWidget(QWidget):
         # Toggle the visibility of certain fields based on the checkbox state
         self.complex_attributes.setVisible(state == Qt.Unchecked)
         self.extensions_form.setVisible(state == Qt.Unchecked)
-        #for i in range(self.entries_list.count()):
-        #    item = self.entries_list.item(i)
-        #    widget = self.entries_list.itemWidget(item)
-        #    widget.complex_field.setVisible(state == Qt.Unchecked)
+        for i in range(self.entries_list.count()):
+            item = self.entries_list.item(i)
+            widget = self.entries_list.itemWidget(item)
+            widget.complex_attributes.setVisible(state == Qt.Unchecked)
+            sizeHint = widget.sizeHint()
+            item.setSizeHint(sizeHint)
+        self.entries_list.updateGeometry()
 
     def updateUIFromData(self):
         characterBook = self.fullData["data"].get("character_book", {})
-        self.name_field.setText(characterBook.get("name"))
-        self.description_field.setPlainText(characterBook.get("description"))
-        self.scan_depth_editor.setText(str(characterBook.get("scan_depth"))) ##TODO int
-        self.token_budget_editor.setText(str(characterBook.get("token_budget"))) ##TODO int
-        self.recursive_scanning.setChecked(characterBook.get("recursive_scanning", False))
+        self.name_field.setText(characterBook.get("name", ""))
+        self.description_field.setPlainText(characterBook.get("description", ""))
+        self.scan_depth_editor.setText(str(characterBook.get("scan_depth", "")))
+        self.token_budget_editor.setText(str(characterBook.get("token_budget", "")))
+        self.recursive_scanning.setCheckState(convertBoolToTristate(characterBook.get("recursive_scanning", None)))
 
         #initialize entries
         self.entries_list.clear()
@@ -212,24 +367,27 @@ class CharacterBookWidget(QWidget):
 
         characterBook["name"] = self.name_field.text()
         characterBook["description"] = self.description_field.toPlainText()
-        characterBook["scan_depth"] = self.scan_depth_editor.text()
-        characterBook["token_budget"] = self.token_budget_editor.text()
+        if self.scan_depth_editor.text() != "":
+            characterBook["scan_depth"] = int(self.scan_depth_editor.text())
+        elif "scan_depth" in characterBook:
+            del characterBook["scan_depth"]
+        if self.token_budget_editor.text() != "":
+            characterBook["token_budget"] = int(self.token_budget_editor.text())
+        elif "token_budget" in characterBook:
+            del characterBook["token_budget"]
         characterBook["recursive_scanning"] = self.recursive_scanning.isChecked()
         
         entries = []
         for i in range(self.entries_list.count()):
             item = self.entries_list.item(i)
             entry = self.entries_list.itemWidget(item)
-            entry_dict = {}
-            entry_dict["keys"] = [x.strip() for x in str(entry.keys_field.text()).split(',')]
-            entry_dict["content"] = entry.content_field.toPlainText()
-            entries.append(entry_dict)
+            entries.append(entry.getData())
         characterBook["entries"] = entries
 
 
 class EditorWidget(QWidget):
-    def __init__(self, fullData, filePath):
-        super().__init__()
+    def __init__(self, fullData, filePath, parent=None):
+        super().__init__(parent)
         
         self.fullData = fullData
         self.filePath = filePath
@@ -237,9 +395,9 @@ class EditorWidget(QWidget):
         self.tab_widget = QTabWidget()
 
         # Create the tabs
-        self.tabCommon = QWidget()
-        self.tabUncommon = QWidget()
-        self.tabCharacterBook = QWidget()
+        self.tabCommon = QWidget(self.tab_widget)
+        self.tabUncommon = QWidget(self.tab_widget)
+        self.tabCharacterBook = QWidget(self.tab_widget)
 
         # Add tabs
         self.tab_widget.addTab(self.tabCommon, "Common Fields")
@@ -250,25 +408,25 @@ class EditorWidget(QWidget):
         self.tabCommon_layout = QFormLayout(self.tabCommon)
         self.nameEdit = QLineEdit()
         self.nameEdit.setToolTip("""Keep it short! The user will probably have to type it a lot.""")
-        self.tabCommon_layout.addRow("Name:", self.nameEdit)
+        self.tabCommon_layout.addRow("Name", self.nameEdit)
         self.descriptionEdit = QPlainTextEdit()
         self.descriptionEdit.setToolTip(
             """Will be included in every prompt. A detailed description of the most important information the model
 needs to know about the character. A thorough description is somewhere in the range of 300-800 tokens,
 and probably should not exceed 1000 tokens.""")
-        self.tabCommon_layout.addRow("Description:", self.descriptionEdit)
+        self.tabCommon_layout.addRow("Description", self.descriptionEdit)
         self.personalityEdit = QPlainTextEdit()
         self.personalityEdit.setToolTip("""A very brief summary of the character's personality.""")
-        self.tabCommon_layout.addRow("Personality:", self.personalityEdit)
+        self.tabCommon_layout.addRow("Personality", self.personalityEdit)
         self.scenarioEdit = QPlainTextEdit()
         self.scenarioEdit.setToolTip("""A very brief summary of the current circumstances to the conversation.""")
-        self.tabCommon_layout.addRow("Scenario:", self.scenarioEdit)
+        self.tabCommon_layout.addRow("Scenario", self.scenarioEdit)
         self.firstMesEdit = QPlainTextEdit()
         self.firstMesEdit.setToolTip(
             """A good first message can make a huge difference in the length and quality of the bot's responses.
 write this greeting as if the bot had written it. Avoid describing the user's actions and dialogue too
 much or the bot might act and speak for the user in subsequent responses.""")
-        self.tabCommon_layout.addRow("First Message:", self.firstMesEdit)
+        self.tabCommon_layout.addRow("First Message", self.firstMesEdit)
         self.mesExampleEdit = QPlainTextEdit()
         self.mesExampleEdit.setToolTip("""<START>
 {{user}}: "How do example messages work?"
@@ -281,50 +439,66 @@ context fills up.*
 {{char}}: "Not every prompt, just until the context fills up with your actual conversation." *{{char}}
 thinks about how just two or three good example conversations like this placeholder text, and formatted
 the same way, can drastically improve the quality of your bot.*""")
-        self.tabCommon_layout.addRow("Message Example:", self.mesExampleEdit)
+        self.tabCommon_layout.addRow("Message Example", self.mesExampleEdit)
 
         # Create second tab layout
-        self.tabUncommon_layout = QFormLayout(self.tabUncommon)        
-        self.alternateGreetingsList = QListWidget()        
+        self.tabUncommon_layout = QGridLayout(self.tabUncommon)
+
+        self.tabUncommon_layout.addWidget(QLabel("Alternate Greetings", self.tabUncommon), 0, 0)
+        self.alternateGreetingsList = QListWidget(self.tabUncommon)
+        self.alternateGreetingsList.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.alternateGreetingsList.setToolTip(
             """This list can contain any number of alternative first messages for this character.
 Frontends should offer the ability for the user to select which first message to use when starting a
 new conversation.""")
-        self.tabUncommon_layout.addRow("Alternate Greetings:", self.alternateGreetingsList)
-        self.addAlternateGreetingButton = QPushButton("Add Alternate Greeting")
+        self.tabUncommon_layout.addWidget(self.alternateGreetingsList)
+        self.addAlternateGreetingButton = QPushButton("Add Alternate Greeting", self.tabUncommon)
         self.addAlternateGreetingButton.clicked.connect(self.add_alternate_greeting)
-        self.tabUncommon_layout.addRow(self.addAlternateGreetingButton)
+        self.tabUncommon_layout.addWidget(self.addAlternateGreetingButton, 1, 1, 1, 3)
+        self.tabUncommon_layout.addWidget(self.alternateGreetingsList, 0, 1, 1, 3)
 
-        self.systemPromptEdit = QPlainTextEdit()
+        self.tabUncommon_layout.addWidget(QLabel("System Prompt", self.tabUncommon), 2, 0)
+        self.systemPromptEdit = QPlainTextEdit(self.tabUncommon)
         self.systemPromptEdit.setToolTip(
             """Frontends replace what users understand to be the "system prompt" global setting with the
 value inside this field. The {{original}} placeholder can be used in this text, which is replaced with
 the system prompt string that the frontend would have used in the absence of a character system_prompt
 (e.g. the user's own system prompt).""")
-        self.tabUncommon_layout.addRow("System Prompt:", self.systemPromptEdit)
-        self.postHistoryInstructionsEdit = QPlainTextEdit()
+        self.tabUncommon_layout.addWidget(self.systemPromptEdit, 2, 1, 1, 3)
+        self.tabUncommon_layout.addWidget(QLabel("Post History Instructions", self.tabUncommon), 3, 0)
+        self.postHistoryInstructionsEdit = QPlainTextEdit(self.tabUncommon)
         self.postHistoryInstructionsEdit.setToolTip(
             """Frontends replace what users understand to be the "ujb/jailbreak" setting with the value inside
 this field. The {{original}} placeholder can be used in this text, which is replaced with the
 "ujb/jailbreak" string that the frontend would have used in the absence of a character system_prompt
 (e.g. the user's own ujb/jailbreak).""")
-        self.tabUncommon_layout.addRow("Post History Instructions:", self.postHistoryInstructionsEdit)
-        self.tagsList = QLineEdit()
+        self.tabUncommon_layout.addWidget(self.postHistoryInstructionsEdit, 3, 1, 1, 3)
+        self.tabUncommon_layout.addWidget(QLabel("Tags", self.tabUncommon), 4, 0)
+        self.tagsList = QLineEdit(self.tabUncommon)
         self.tagsList.setToolTip("""comma, separated, list, of, tags. Used for discoverability, isn't used by the chatbot.""")
-        self.tabUncommon_layout.addRow("Tags:", self.tagsList)
-        self.characterVersionEdit = QLineEdit()
+        self.tabUncommon_layout.addWidget(self.tagsList, 4, 1, 1, 3)
+        self.tabUncommon_layout.addWidget(QLabel("Character Version", self.tabUncommon), 5, 0)
+        self.characterVersionEdit = QLineEdit(self.tabUncommon)
         self.characterVersionEdit.setToolTip("""A version string for tracking updates to this character.""")
-        self.tabUncommon_layout.addRow("Character Version:", self.characterVersionEdit)
-        self.creatorEdit = QLineEdit()
+        self.tabUncommon_layout.addWidget(self.characterVersionEdit, 5, 1)
+        self.tabUncommon_layout.addWidget(QLabel("Creator", self.tabUncommon), 5, 2)
+        self.creatorEdit = QLineEdit(self.tabUncommon)
         self.creatorEdit.setToolTip("""The name of the person who created this character.""")
-        self.tabUncommon_layout.addRow("Creator:", self.creatorEdit)
-        self.creatorNotesEdit = QPlainTextEdit()
+        self.tabUncommon_layout.addWidget(self.creatorEdit, 5, 3)
+        self.tabUncommon_layout.addWidget(QLabel("Creator Notes", self.tabUncommon), 6, 0)
+        self.creatorNotesEdit = QPlainTextEdit(self.tabUncommon)
         self.creatorNotesEdit.setToolTip(
             """The text in this field is used for 'discoverability.' The first line might be a very simple
 description of the bot - 'A friendly clown with a knife, in a dark alley'. Expect most users to only
 see that first line. The rest of this value can be used for important notes the user may find helpful
 to get the best experience from the bot.""")
-        self.tabUncommon_layout.addRow("Creator Notes:", self.creatorNotesEdit)
+        self.tabUncommon_layout.addWidget(self.creatorNotesEdit, 6, 1, 1, 3)
+        self.tabUncommon_layout.addWidget(QLabel("Extensions", self.tabUncommon), 7, 0)
+        self.extensionsEdit = QPlainTextEdit(self.tabUncommon)
+        self.extensionsEdit.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
+        self.extensionsEdit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.extensionsEdit.setToolTip("A block of JSON values used by non-standard chatbot extensions.")
+        self.tabUncommon_layout.addWidget(self.extensionsEdit, 7, 1, 1, 3)        
 
         # Create third tab layout
         self.tabCharacterBook_layout = QVBoxLayout(self.tabCharacterBook)
@@ -334,15 +508,15 @@ to get the best experience from the bot.""")
         self.updateUIFromData()
 
         # Create the buttons
-        self.saveButton = QPushButton("&Save")
+        self.saveButton = QPushButton("Save")
         self.saveButton.setToolTip("""Updates the character data stored in the character card PNG.""")
         self.saveButton.root = self
         self.saveButton.clicked.connect(self.saveClicked)
-        self.exportButton = QPushButton('&Export JSON')
+        self.exportButton = QPushButton('Export JSON')
         self.exportButton.setToolTip("""Saves the data for this character as a separate JSON file. Doesn't update the character card PNG.""")
         self.exportButton.root = self
         self.exportButton.clicked.connect(self.exportClicked)
-        self.importButton = QPushButton('&Import JSON')
+        self.importButton = QPushButton('Import JSON')
         self.importButton.setToolTip("""Loads character data from a JSON file, overwriting the data currently displayed in the editor.
 Doesn't update the character card PNG, you'll need to click "Save" after importing to do that.""")
         self.importButton.root = self
@@ -382,6 +556,7 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
         self.characterVersionEdit.setText(data.get("character_version"))
         self.creatorEdit.setText(data.get("creator"))
         self.creatorNotesEdit.setPlainText(data.get("creator_notes"))
+        self.extensionsEdit.setPlainText(json.dumps(data.get("extensions")))
 
         self.characterBookEdit.updateUIFromData()
 
@@ -408,6 +583,7 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
         data["post_history_instructions"] = str(self.postHistoryInstructionsEdit.toPlainText())
         data["creator"] = str(self.creatorEdit.text())
         data["creator_notes"] = str(self.creatorNotesEdit.toPlainText())
+        data["extensions"] = safeJSONLoads(self.extensionsEdit.toPlainText())
         
         self.characterBookEdit.updateDataFromUI()
 
@@ -417,15 +593,19 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
 
     def exportClicked(self):
         self.updateDataFromUI()
-        #TODO file picker, this will be the default
         jsonFilepath = self.filePath[:-3]+"json"
-        with open(jsonFilepath, "w", encoding="utf-8") as f:
-            json.dump(self.fullData, f)
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getSaveFileName(self,"QFileDialog.getSaveFileName()", jsonFilepath, "JSON Files (*.json)", options=options)
+        if fileName:
+            with open(fileName, "w", encoding="utf-8") as f:
+                json.dump(self.fullData, f)
 
     def importClicked(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "/path/to/default/folder", "JSON Files (*.json)", options=options)
+        filepath = self.window().global_filepath
+        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", filepath, "JSON Files (*.json)", options=options)
         if fileName:
             with open(fileName, "r", encoding="utf-8") as f:
                 self.fullData = json.load(f)
@@ -444,7 +624,6 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
     def delete_alternate_greeting(self, item):
         row = self.alternateGreetingsList.row(item)
         self.alternateGreetingsList.takeItem(row)
-
 
 from PyQt5.QtGui import QPixmap, QPainter, QColor
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
@@ -479,9 +658,8 @@ class ImageThumbnail(QWidget):
 class ImageList(QListWidget):
     directoryChanged = pyqtSignal()
     
-    def __init__(self, dirPath):
-        super().__init__()
-        self.dirPath = dirPath
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.itemClicked.connect(self.showImage)
         self.stack = QStackedWidget()
         self.loadImages()
@@ -489,16 +667,17 @@ class ImageList(QListWidget):
     def loadImages(self):
         self.clear()
         self.stack = QStackedWidget()
-        for file in os.listdir(self.dirPath):
+        filepath = self.window().global_filepath
+        for file in os.listdir(filepath):
             if file.endswith(".png"):
                 item = QListWidgetItem(self)
                 self.addItem(item)
-                imagePath = os.path.join(self.dirPath, file)
+                imagePath = os.path.join(filepath, file)
                 imageLabel = ImageThumbnail(imagePath)
                 data = read_character(imagePath)
                 item.setSizeHint(imageLabel.sizeHint())
                 self.setItemWidget(item, imageLabel)
-                self.stack.addWidget(EditorWidget(data, imagePath))
+                self.stack.addWidget(EditorWidget(data, imagePath, self))
 
     def showImage(self, item):
         index = self.row(item)
@@ -508,7 +687,7 @@ class ImageList(QListWidget):
     def changeDirectory(self):
         newDirpath = QFileDialog.getExistingDirectory(self, "Select Directory")
         if newDirpath != '':
-            self.dirPath = newDirpath
+            self.window().global_filepath = newDirpath
             self.updateDirectory()
 
     def updateDirectory(self):
@@ -516,14 +695,15 @@ class ImageList(QListWidget):
         self.directoryChanged.emit()
 
 class MainWindow(QWidget):
-    def __init__(self, dirPath):
+    def __init__(self):
         super().__init__()
         self.setWindowTitle("TavernAI Character Editor")
+        self.global_filepath = "."
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
         self.splitter = QSplitter(Qt.Horizontal)
         self.layout.addWidget(self.splitter)
-        self.imageList = ImageList(dirPath)
+        self.imageList = ImageList(self)
         self.imageList.directoryChanged.connect(self.updateStack)
         self.changeDirButton = QPushButton("Change Directory", self)
         self.changeDirButton.clicked.connect(self.imageList.changeDirectory)
@@ -546,7 +726,7 @@ class MainWindow(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow(TEMP_ROOT)  # Replace with your directory path
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())
 
