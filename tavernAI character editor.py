@@ -72,6 +72,7 @@ def convertBoolToTristate(data):
     elif data == False:
         return Qt.Unchecked
     return Qt.PartiallyChecked
+
 def convertTristateToBool(data):
     if data == Qt.Checked:
         return True
@@ -84,6 +85,18 @@ def safeJSONLoads(jsonstring):
         return json.loads(jsonstring)
     except:
         return jsonstring
+
+def safeNumberConversion(stringVal, default=None):
+    try:
+        return float(stringVal)
+    except ValueError:
+        return default
+
+def updateOrDeleteKey(dictionary, key, value, nullvalue=None):
+    if value != nullvalue:
+        dictionary[key] = value
+    elif key in dictionary:
+        del dictionary[key]
 
 class AlternateGreetingWidget(QWidget):
     def __init__(self, parent=None):
@@ -236,17 +249,21 @@ indicate that this particular data parameter is optional and may be absent entir
         entry_dict["content"] = self.content_field.toPlainText()
         entry_dict["extensions"] = safeJSONLoads(self.extensions_edit.toPlainText())
         entry_dict["enabled"] = self.enabled_checkbox.isChecked()
-        entry_dict["insertion_order"] = int(self.insertion_order_edit.text())
-        entry_dict["case_sensitive"] = convertTristateToBool(self.case_sensitive_checkbox.checkState())
-        #entry_dict["name"] =
-        #entry_dict["priority"] =
-        #entry_dict["id"] =
-        #entry_dict["comment"] =
-        #entry_dict["selective"] =
-        #entry_dict["secondary_keys"] =
-        #entry_dict["constant"] =
-        #entry_dict["position"] =
-        
+        #According to the specs, insertion order is mandatory. Default it to 0.
+        entry_dict["insertion_order"] = safeNumberConversion(self.insertion_order_edit.text(), 0)
+        updateOrDeleteKey(entry_dict, "case_sensitive", convertTristateToBool(self.case_sensitive_checkbox.checkState()))
+        updateOrDeleteKey(entry_dict, "name", self.name_edit.text(), "")
+        updateOrDeleteKey(entry_dict, "priority", safeNumberConversion(self.priority_edit.text()))
+        updateOrDeleteKey(entry_dict, "id", safeNumberConversion(self.id_edit.text()))
+        updateOrDeleteKey(entry_dict, "comment", self.comment_edit.toPlainText(), "")
+        updateOrDeleteKey(entry_dict, "selective", convertTristateToBool(self.selective_checkbox.checkState()))
+        updateOrDeleteKey(entry_dict, "secondary_keys", [x.strip() for x in str(self.keys_field.text()).split(',')], [])
+        updateOrDeleteKey(entry_dict, "constant", convertTristateToBool(self.constant_checkbox.checkState()))
+        position = self.positionBox.currentText()
+        if position == "Before character":
+            entry_dict["position"] = "before_char"
+        elif position == "After character":
+            entry_dict["position"] = "after_char"
         return entry_dict
 
 class CharacterBookWidget(QWidget):
@@ -355,7 +372,8 @@ indicate that this particular data parameter is optional and may be absent entir
         self.scan_depth_editor.setText(str(characterBook.get("scan_depth", "")))
         self.token_budget_editor.setText(str(characterBook.get("token_budget", "")))
         self.recursive_scanning.setCheckState(convertBoolToTristate(characterBook.get("recursive_scanning", None)))
-
+        self.extensions_edit.setPlainText(json.dumps(characterBook.get("extensions", {})))
+        
         #initialize entries
         self.entries_list.clear()
         for entry in characterBook.get("entries", []):
@@ -365,8 +383,8 @@ indicate that this particular data parameter is optional and may be absent entir
         characterBook = self.fullData["data"].get("character_book", {})
         self.fullData["data"]["character_book"] = characterBook
 
-        characterBook["name"] = self.name_field.text()
-        characterBook["description"] = self.description_field.toPlainText()
+        updateOrDeleteKey(characterBook, "name", self.name_field.text(), "")
+        updateOrDeleteKey(characterBook, "description", self.description_field.toPlainText(), "")
         if self.scan_depth_editor.text() != "":
             characterBook["scan_depth"] = int(self.scan_depth_editor.text())
         elif "scan_depth" in characterBook:
@@ -375,7 +393,8 @@ indicate that this particular data parameter is optional and may be absent entir
             characterBook["token_budget"] = int(self.token_budget_editor.text())
         elif "token_budget" in characterBook:
             del characterBook["token_budget"]
-        characterBook["recursive_scanning"] = self.recursive_scanning.isChecked()
+        updateOrDeleteKey(characterBook, "recursive_scanning", convertTristateToBool(self.recursive_scanning.checkState()))
+        characterBook["extensions"] = safeJSONLoads(self.extensions_edit.toPlainText())
         
         entries = []
         for i in range(self.entries_list.count()):
