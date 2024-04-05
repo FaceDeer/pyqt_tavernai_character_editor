@@ -50,6 +50,41 @@ def write_character(path, data):
     metadata.add_text('chara', base64_str)
     image.save(path, 'PNG', pnginfo=metadata)
 
+#ensures that agnai, sillytavern, and tavernai characterbooks all come out in the same
+#format, ready for insertion into a tavernai character
+def process_worldbook(data):
+    if not isinstance(data, dict):
+        print(type(data))
+        return None
+    if not "entries" in data:
+        print("not entries")
+        if "spec" in data and data["spec"] =='chara_card_v2' and "data" in data and "character_book" in data["data"]:
+            return data["data"]["character_book"]        
+        return None
+    if isinstance(data["entries"], dict):
+        entries = list(data["entries"].values())
+        data["entries"] = entries
+    for entry in data["entries"]:
+        if "entry" in entry and entry.get("content") == entry.get("entry"):
+            del entry["entry"]
+            #The agnai worldbooks I've looked at have duplicte contents, I'm making an executive decision here
+            #to pare that down since the spec for tavernai characters would ignore this data anyway
+    return data
+#merges worldBook into characterBook
+def import_worldbook(characterBook, worldBook):
+    desc = worldBook.get("description", "")
+    if desc != "" and characterBook.get("description", "") == "":
+        characterBook["description"] = desc
+    name = worldBook.get("name", "")
+    if name != "" and characterBook.get("name", "") == "":
+        characterBook["name"] = name
+    characterBook["entries"] = characterBook.get("entries", [])
+    characterBook["entries"] += worldBook["entries"]
+    worldExtensions = worldBook.get("extensions", {})
+    characterExtensions = characterBook.get("extensions", {})
+    characterBook["extensions"] = characterExtensions | worldExtensions
+    return characterBook
+
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QLabel, QListWidgetItem, QStackedWidget, QSplitter
 from PyQt5.QtWidgets import QLineEdit, QPlainTextEdit, QListWidget, QPushButton, QFormLayout, QTabWidget, QHBoxLayout, QFileDialog
@@ -233,6 +268,8 @@ indicate that this particular data parameter is optional and may be absent entir
             position = "Before character"
         elif position == "after_char":
             position = "After character"
+        else:
+            position = ""
         self.positionBox.setCurrentText(position)
         self.insertion_order_edit.setText(str(entry.get("insertion_order", "0")))
         self.priority_edit.setText(str(entry.get("priority", "")))
@@ -257,7 +294,7 @@ indicate that this particular data parameter is optional and may be absent entir
         updateOrDeleteKey(entry_dict, "id", safeNumberConversion(self.id_edit.text()))
         updateOrDeleteKey(entry_dict, "comment", self.comment_edit.toPlainText(), "")
         updateOrDeleteKey(entry_dict, "selective", convertTristateToBool(self.selective_checkbox.checkState()))
-        updateOrDeleteKey(entry_dict, "secondary_keys", [x.strip() for x in str(self.keys_field.text()).split(',')], [])
+        updateOrDeleteKey(entry_dict, "secondary_keys", [x.strip() for x in str(self.secondary_keys_edit.text()).split(',')], [])
         updateOrDeleteKey(entry_dict, "constant", convertTristateToBool(self.constant_checkbox.checkState()))
         position = self.positionBox.currentText()
         if position == "Before character":
@@ -332,10 +369,23 @@ indicate that this particular data parameter is optional and may be absent entir
         self.entries_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid black; }")
         self.layout.addWidget(self.entries_list)
 
+
+        self.buttonWidget = QWidget(self)
+        self.buttonWidgetLayout = QHBoxLayout()
+        self.buttonWidget.setLayout(self.buttonWidgetLayout)
+        self.layout.addWidget(self.buttonWidget)
+        
         # Add a button for adding new entries
         self.add_button = QPushButton("Add Entry", self)
+        self.add_button.setToolTip("Inserts a new blank entry at the bottom of the character book")
         self.add_button.clicked.connect(self.add_entry)
-        self.layout.addWidget(self.add_button)
+        self.buttonWidgetLayout.addWidget(self.add_button)
+
+        self.importWorldbookButton = QPushButton("Import Worldbook", self)
+        self.importWorldbookButton.setToolTip("""Imports entries from a SillyTavern or Agnai worldbook, or an exported TavernAI
+character's characterbook, and appends them to the existing character book's entries.""")
+        self.importWorldbookButton.clicked.connect(self.import_worldbook)
+        self.buttonWidgetLayout.addWidget(self.importWorldbookButton)
 
         self.view_checkbox.setChecked(True)
 
@@ -348,6 +398,22 @@ indicate that this particular data parameter is optional and may be absent entir
         self.entries_list.addItem(widget_item)
         self.entries_list.setItemWidget(widget_item, custom_widget)
         custom_widget.delete_button.clicked.connect(lambda: self.delete_entry(widget_item))
+
+    def import_worldbook(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        filepath = self.window().global_filepath
+        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", filepath, "JSON Files (*.json)", options=options)
+        if fileName:
+            with open(fileName, "r", encoding="utf-8") as f:
+                worldBook = json.load(f)
+                worldBook = process_worldbook(worldBook)
+                if worldBook == None:
+                    return
+                characterBook = self.fullData["data"].get("character_book", {})
+                self.fullData["data"]["character_book"] = characterBook
+                import_worldbook(characterBook, worldBook)
+                self.updateUIFromData()
     
     def delete_entry(self, item):
         row = self.entries_list.row(item)
@@ -725,8 +791,12 @@ class MainWindow(QWidget):
         self.imageList = ImageList(self)
         self.imageList.directoryChanged.connect(self.updateStack)
         self.changeDirButton = QPushButton("Change Directory", self)
+        self.changeDirButton.setToolTip("""Switches thumbnail list to another directory.
+WARNING: Save your work first! Unsaved edits are discarded.""")
         self.changeDirButton.clicked.connect(self.imageList.changeDirectory)
         self.refreshDirButton = QPushButton("Refresh", self)
+        self.refreshDirButton.setToolTip("""Reloads the thumbnail list for the current directory.
+WARNING: Save your work first! Unsaved edits are discarded.""")
         self.refreshDirButton.clicked.connect(self.imageList.updateDirectory)
 
         self.rightPanel = QWidget()
