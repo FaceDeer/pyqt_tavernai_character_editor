@@ -26,6 +26,10 @@ base = {
 
 PLAINTEXT_EDITOR_MAX_HEIGHT = 50
 
+# Various global methods
+
+# Extract JSON character data from an image. Handles both V1 and V2 TavernAI format, returns V2.
+# Creates a new character data dict if the image doesn't have one.
 def read_character(path):
     image = PngImageFile(path)
     user_comment = image.text.get('chara', None)
@@ -40,8 +44,17 @@ def read_character(path):
         newData = json.loads(json.dumps(base)) # deep copy of an empty character dictionary
         newData["data"] = data
         data = newData
+    if not isinstance(data["data"].get("tags", []), list):
+        data["data"]["tags"] = []
+    if not isinstance(data["data"].get("alternate_greetings", []), list):
+        data["data"]["alternate_greetings"] = []
+    if "character_book" in data["data"] and "entries" in data["data"]["character_book"]:
+        for entry in data["data"]["character_book"]["entries"]:
+            if not isinstance(entry.get("secondary_keys"), list):
+                entry["secondary_keys"] = []
     return data
 
+#Writes character data back to the image
 def write_character(path, data):
     json_str = json.dumps(data)
     base64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
@@ -70,6 +83,7 @@ def process_worldbook(data):
             #The agnai worldbooks I've looked at have duplicte contents, I'm making an executive decision here
             #to pare that down since the spec for tavernai characters would ignore this data anyway
     return data
+
 #merges worldBook into characterBook
 def import_worldbook(characterBook, worldBook):
     desc = worldBook.get("description", "")
@@ -101,13 +115,13 @@ def excepthook(exc_type, exc_value, exc_tb):
 
 sys.excepthook = excepthook
 
+#Common functionality for checkboxes that can be undefined
 def convertBoolToTristate(data):
     if data == True:
         return Qt.Checked
     elif data == False:
         return Qt.Unchecked
     return Qt.PartiallyChecked
-
 def convertTristateToBool(data):
     if data == Qt.Checked:
         return True
@@ -115,6 +129,7 @@ def convertTristateToBool(data):
         return False
     return None
 
+#Handle malformed extensions fields
 def safeJSONLoads(jsonstring):
     try:
         return json.loads(jsonstring)
@@ -127,12 +142,15 @@ def safeNumberConversion(stringVal, default=None):
     except ValueError:
         return default
 
+# For handling keys that are optional. If the value is equal to the nullvalue
+# it gets removed from the dict entirely.
 def updateOrDeleteKey(dictionary, key, value, nullvalue=None):
     if value != nullvalue:
         dictionary[key] = value
     elif key in dictionary:
         del dictionary[key]
 
+# A simple text editor with a delete button, for use in the alternate greetings widget
 class AlternateGreetingWidget(QWidget):
     def __init__(self, parent=None):
         super(AlternateGreetingWidget, self).__init__(parent)
@@ -143,12 +161,14 @@ class AlternateGreetingWidget(QWidget):
         self.layout.addWidget(self.editor)
         self.layout.addWidget(self.delete_button)
 
+#CharacterBook entry.
 class EntryWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
         self.setLayout(self.layout)
 
+        # Just the most basic properites, the keys and content for the entry
         self.simple_attributes = QWidget(self)
         self.simple_attributes_layout = QGridLayout(self.simple_attributes)
         self.layout.addWidget(self.simple_attributes)
@@ -164,6 +184,7 @@ class EntryWidget(QWidget):
         self.content_field.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.simple_attributes_layout.addWidget(self.content_field, 1, 1, 1, 2)
 
+        # All the rest of the properties are contained here so they can be shown and hidden together
         self.complex_attributes = QWidget(self)
         self.complex_attributes_layout = QGridLayout(self.complex_attributes)
         self.layout.addWidget(self.complex_attributes)
@@ -251,11 +272,15 @@ indicate that this particular data parameter is optional and may be absent entir
         self.extensions_edit.setToolTip("A block of JSON values used by non-standard chatbot extensions.")
         grid.addWidget(self.extensions_edit, 5, 1)
 
+    # Enables/disables the secondary keys control
     def setSelective(self, state):
         self.secondary_keys_edit.setEnabled(state == Qt.Checked)
 
+    # Takes an entry dict and updates the UI's contents to match
     def setData(self, entry):
         if not entry:
+            self.enabled_checkbox.setChecked(True) #default new entries to enabled
+            self.extensions_edit.setPlainText("{}")
             return
         self.content_field.setPlainText(entry.get("content"))
         self.keys_field.setText(", ".join(entry.get("keys", [])))
@@ -279,13 +304,14 @@ indicate that this particular data parameter is optional and may be absent entir
         self.secondary_keys_edit.setText(", ".join(entry.get("secondary_keys", [])))
         self.secondary_keys_edit.setEnabled(entry.get("selective", False))
         self.extensions_edit.setPlainText(json.dumps(entry.get("extensions", {})))
-        
+
+    # Puts all of the data from the UI into a dict to hand back
     def getData(self):
         entry_dict = {}
         entry_dict["keys"] = [x.strip() for x in str(self.keys_field.text()).split(',')]
         entry_dict["content"] = self.content_field.toPlainText()
         entry_dict["extensions"] = safeJSONLoads(self.extensions_edit.toPlainText())
-        entry_dict["enabled"] = self.enabled_checkbox.isChecked()
+        entry_dict["enabled"] = self.enabled_checkbox.checkState() == Qt.Checked
         #According to the specs, insertion order is mandatory. Default it to 0.
         entry_dict["insertion_order"] = safeNumberConversion(self.insertion_order_edit.text(), 0)
         updateOrDeleteKey(entry_dict, "case_sensitive", convertTristateToBool(self.case_sensitive_checkbox.checkState()))
@@ -294,7 +320,7 @@ indicate that this particular data parameter is optional and may be absent entir
         updateOrDeleteKey(entry_dict, "id", safeNumberConversion(self.id_edit.text()))
         updateOrDeleteKey(entry_dict, "comment", self.comment_edit.toPlainText(), "")
         updateOrDeleteKey(entry_dict, "selective", convertTristateToBool(self.selective_checkbox.checkState()))
-        updateOrDeleteKey(entry_dict, "secondary_keys", [x.strip() for x in str(self.secondary_keys_edit.text()).split(',')], [])
+        updateOrDeleteKey(entry_dict, "secondary_keys", [x.strip() for x in str(self.secondary_keys_edit.text()).split(',')])
         updateOrDeleteKey(entry_dict, "constant", convertTristateToBool(self.constant_checkbox.checkState()))
         position = self.positionBox.currentText()
         if position == "Before character":
@@ -303,6 +329,7 @@ indicate that this particular data parameter is optional and may be absent entir
             entry_dict["position"] = "after_char"
         return entry_dict
 
+# Much more complicated than the main window's list of properties, so it gets its own widget
 class CharacterBookWidget(QWidget):
     def __init__(self, fullData, parent=None):
         super().__init__(parent)
@@ -310,7 +337,7 @@ class CharacterBookWidget(QWidget):
         self.fullData = fullData
         self.layout = QVBoxLayout(self)
 
-        # Add a checkbox for toggling view mode
+        # A checkbox for toggling view mode
         self.view_checkbox = QCheckBox("Simple View", self)
         self.view_checkbox.stateChanged.connect(self.toggle_view)
         self.layout.addWidget(self.view_checkbox)
@@ -368,7 +395,6 @@ indicate that this particular data parameter is optional and may be absent entir
         self.entries_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.entries_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid black; }")
         self.layout.addWidget(self.entries_list)
-
 
         self.buttonWidget = QWidget(self)
         self.buttonWidgetLayout = QHBoxLayout()
@@ -651,6 +677,8 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
 
         data["name"] = str(self.nameEdit.text())
         data["tags"] = [x.strip() for x in str(self.tagsList.text()).split(',')]
+        if "" in data["tags"]:
+            data["tags"].remove("")
         data["character_version"] = str(self.characterVersionEdit.text())
         data["description"] = str(self.descriptionEdit.toPlainText())
         data["personality"] = str(self.personalityEdit.toPlainText())
@@ -730,15 +758,22 @@ class AspectRatioLabel(QLabel):
         painter.drawPixmap(startPointX, startPointY, scaledPix)
 
 class ImageThumbnail(QWidget):
-    def __init__(self, imagePath):
+    def __init__(self, imagePath, data):
         super().__init__()
         layout = QHBoxLayout()
         self.setLayout(layout)
         imageLabel = AspectRatioLabel(imagePath)
         imageLabel.setFixedSize(QSize(64, 64))
         layout.addWidget(imageLabel)
-        textLabel = QLabel(os.path.basename(imagePath)[:-4])
-        layout.addWidget(textLabel)
+
+        text = QWidget(self)
+        text_layout = QVBoxLayout(text)
+        layout.addWidget(text)
+        
+        nameLabel = QLabel(data["data"].get("name", ""), text)
+        text_layout.addWidget(nameLabel)
+        textLabel = QLabel(os.path.basename(imagePath), text)
+        text_layout.addWidget(textLabel)
 
 class ImageList(QListWidget):
     directoryChanged = pyqtSignal()
@@ -758,8 +793,8 @@ class ImageList(QListWidget):
                 item = QListWidgetItem(self)
                 self.addItem(item)
                 imagePath = os.path.join(filepath, file)
-                imageLabel = ImageThumbnail(imagePath)
                 data = read_character(imagePath)
+                imageLabel = ImageThumbnail(imagePath, data)
                 item.setSizeHint(imageLabel.sizeHint())
                 self.setItemWidget(item, imageLabel)
                 self.stack.addWidget(EditorWidget(data, imagePath, self))
