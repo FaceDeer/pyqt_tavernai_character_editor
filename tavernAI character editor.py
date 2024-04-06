@@ -67,10 +67,8 @@ def write_character(path, data):
 #format, ready for insertion into a tavernai character
 def process_worldbook(data):
     if not isinstance(data, dict):
-        print(type(data))
         return None
     if not "entries" in data:
-        print("not entries")
         if "spec" in data and data["spec"] =='chara_card_v2' and "data" in data and "character_book" in data["data"]:
             return data["data"]["character_book"]        
         return None
