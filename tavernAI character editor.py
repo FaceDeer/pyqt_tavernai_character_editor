@@ -203,6 +203,7 @@ class EntryWidget(QWidget):
         bools = self.booleans_layout
         self.enabled_checkbox = QCheckBox("Enabled", self) #not tristate, enabled is required by the spec
         self.enabled_checkbox.setToolTip("Whether this entry is to be actually used by the character.")
+        self.enabled_checkbox.stateChanged.connect(self.updateWidgetEnabled)
         bools.addWidget(self.enabled_checkbox)
         self.case_sensitive_checkbox = QCheckBox("Case Sensitive", self)
         self.case_sensitive_checkbox.setTristate(True)
@@ -276,6 +277,12 @@ indicate that this particular data parameter is optional and may be absent entir
     def setSelective(self, state):
         self.secondary_keys_edit.setEnabled(state == Qt.Checked)
 
+    def updateWidgetEnabled(self):
+        if self.enabled_checkbox.checkState() != Qt.Checked:
+            self.setStyleSheet("background-color: #D3D3D3;")  # Light gray
+        else:
+            self.setStyleSheet("")  # Reset to default style
+
     # Takes an entry dict and updates the UI's contents to match
     def setData(self, entry):
         if not entry:
@@ -286,6 +293,7 @@ indicate that this particular data parameter is optional and may be absent entir
         self.keys_field.setText(", ".join(entry.get("keys", [])))
         self.name_edit.setText(entry.get("name"))
         self.enabled_checkbox.setChecked(entry.get("enabled", True)) #defaulting to true because that just seems like the most likely intent when this is absent entirely
+        self.updateWidgetEnabled()
         self.case_sensitive_checkbox.setCheckState(convertBoolToTristate(entry.get("case_sensitive", None)))
         self.constant_checkbox.setCheckState(convertBoolToTristate(entry.get("constant", None)))
         position = entry.get("position", "")
