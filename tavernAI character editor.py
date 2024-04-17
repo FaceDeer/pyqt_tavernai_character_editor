@@ -25,6 +25,7 @@ base = {
 }
 
 PLAINTEXT_EDITOR_MAX_HEIGHT = 50
+DIRTY_CHARACTER_COLOUR = "background-color: #FFFF00;"
 
 # Various global methods
 
@@ -807,7 +808,7 @@ Doesn't update the character card PNG, you'll need to click "Save" after importi
 
     def setDirty(self):
         if not self.initializing:
-            self.itemLabel.setStyleSheet("background-color: #D3D3D3;")  # Light gray
+            self.itemLabel.setStyleSheet(DIRTY_CHARACTER_COLOUR)  # Light gray
 
 from PyQt5.QtGui import QPixmap, QPainter, QColor
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
