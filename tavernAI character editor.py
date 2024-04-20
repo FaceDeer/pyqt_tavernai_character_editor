@@ -208,10 +208,15 @@ class EntryWidget(QWidget):
         self.name_edit.setToolTip("not used in prompt engineering")
         grid.addWidget(self.name_edit, 0, 1)
 
+        self.copyKeysButton = QPushButton("Copy Keys", self)
+        self.copyKeysButton.setToolTip('Copy the "Keys" field into the "Name" field')
+        self.copyKeysButton.clicked.connect(self.copy_keys)
+        grid.addWidget(self.copyKeysButton, 0, 2)
+
         self.booleans = QWidget(self)
         self.booleans_layout = QHBoxLayout(self.booleans)
         self.booleans.setLayout(self.booleans_layout)
-        grid.addWidget(self.booleans, 1, 0, 1, 2)
+        grid.addWidget(self.booleans, 1, 0, 1, 3)
         bools = self.booleans_layout
         self.enabled_checkbox = QCheckBox("Enabled", self) #not tristate, enabled is required by the spec
         self.enabled_checkbox.setToolTip("Whether this entry is to be actually used by the character.")
@@ -246,7 +251,7 @@ indicate that this particular data parameter is optional and may be absent entir
         self.numbers = QWidget(self)
         self.numbers_layout = QHBoxLayout(self.numbers)
         self.numbers.setLayout(self.numbers_layout)
-        grid.addWidget(self.numbers, 2, 0, 1, 2)
+        grid.addWidget(self.numbers, 2, 0, 1, 3)
         nums = self.numbers_layout
         nums.addWidget(QLabel("Insertion Order", self))
         self.insertion_order_edit = QLineEdit(self)
@@ -273,7 +278,7 @@ indicate that this particular data parameter is optional and may be absent entir
         self.comment_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.comment_edit.setToolTip("not used in prompt engineering")
         self.comment_edit.textChanged.connect(self.setDirty)
-        grid.addWidget(self.comment_edit, 3, 1)
+        grid.addWidget(self.comment_edit, 3, 1, 1, 2)
         self.selective_checkbox = QCheckBox("Selective", self)
         self.selective_checkbox.setTristate(True)
         self.selective_checkbox.stateChanged.connect(self.setSelective)
@@ -285,18 +290,22 @@ indicate that this particular data parameter is optional and may be absent entir
         self.secondary_keys_edit = QLineEdit(self)
         self.secondary_keys_edit.setToolTip("comma-separated secondary keys, only used if \"selective\" is set to true.")
         self.secondary_keys_edit.textChanged.connect(self.setDirty)
-        grid.addWidget(self.secondary_keys_edit, 4, 1)
+        grid.addWidget(self.secondary_keys_edit, 4, 1, 1, 2)
         grid.addWidget(QLabel("Extensions", self), 5, 0)
         self.extensions_edit = QPlainTextEdit(self)
         self.extensions_edit.setMaximumHeight(PLAINTEXT_EDITOR_MAX_HEIGHT)
         self.extensions_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.extensions_edit.setToolTip("A block of JSON values used by non-standard chatbot extensions.")
         self.extensions_edit.textChanged.connect(self.setDirty)
-        grid.addWidget(self.extensions_edit, 5, 1)
+        grid.addWidget(self.extensions_edit, 5, 1, 1, 2)
 
     # Enables/disables the secondary keys control
     def setSelective(self, state):
         self.secondary_keys_edit.setEnabled(state == Qt.Checked)
+        self.setDirty()
+
+    def copy_keys(self):
+        self.name_edit.setText(self.keys_field.text())
         self.setDirty()
 
     def updateWidgetEnabled(self):
